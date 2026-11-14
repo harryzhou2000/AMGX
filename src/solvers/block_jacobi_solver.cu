@@ -1089,12 +1089,14 @@ void BlockJacobiSolver<TemplateConfig<AMGX_device, t_vecPrec, t_matPrec, t_indPr
     const IndexType *A_dia_idx_ptr = A.diag.raw();
     ValueTypeA *Dinv_ptr = this->Dinv.raw();
     const ValueTypeA *A_nonzero_values_ptr = A.values.raw();
-    MVector temp(AMGX_GRID_MAX_SIZE * ((bsize - 1) / 4 + 1) * ((bsize - 1) / 4 + 1));
-    ValueTypeA *temp_ptr = temp.raw();
     // MUST BE MULTIPLE OF 16
     const int threads_per_block = 512;
     const int halfwarps_per_block = threads_per_block / 16;
     const int num_blocks = std::min(AMGX_GRID_MAX_SIZE, (int) (A.get_num_rows() - 1) / halfwarps_per_block + 1);
+    // The kernel assigns tile storage per launched thread, not per block.
+    const size_t tile_count = (bsize - 1) / 4 + 1;
+    MVector temp(size_t(num_blocks) * threads_per_block * tile_count * tile_count);
+    ValueTypeA *temp_ptr = temp.raw();
     cudaFuncSetCacheConfig(setupBlockJacobiSmoothbBigBlockDiaCsrKernel<IndexType, ValueTypeA, threads_per_block, halfwarps_per_block>, cudaFuncCachePreferL1);
     setupBlockJacobiSmoothbBigBlockDiaCsrKernel<IndexType, ValueTypeA, threads_per_block, halfwarps_per_block> <<< num_blocks, threads_per_block, sizeof(ValueTypeA)*bsize *bsize *halfwarps_per_block>>>
     (A_row_offsets_ptr, A_column_indices_ptr, A_nonzero_values_ptr, A_dia_idx_ptr, Dinv_ptr, A.get_num_rows(), bsize, bsize * bsize, temp_ptr);

@@ -15,7 +15,9 @@ target_include_directories(amgx_libs PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../inclu
 
 set(AMGX_INCLUDES ../include)
 
-set(tests_all ${tests_all} testframework.cu test_utils.cu unit_test.cu)
+# Keep the provider patch's independent host/GPU Galerkin oracle available.
+# This target is only built explicitly; normal library builds remain unchanged.
+set(tests_all ${tests_all} tests/aggregates_coarse_generator.cu testframework.cu test_utils.cu unit_test.cu)
 
 add_library(amgx_tests_libs OBJECT ${tests_all})
 

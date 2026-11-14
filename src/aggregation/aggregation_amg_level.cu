@@ -499,6 +499,16 @@ void Aggregation_AMG_Level<TemplateConfig<AMGX_device, t_vecPrec, t_matPrec, t_i
             cudaCheckError();
             break;
 
+        case 6:
+            restrictResidualBlockDiaCsrKernel<IndexType, ValueTypeB, 6> <<< num_blocks, block_size>>>(R_row_offsets_ptr, R_column_indices_ptr, r_ptr, rr_ptr, max_threads);
+            cudaCheckError();
+            break;
+
+        case 7:
+            restrictResidualBlockDiaCsrKernel<IndexType, ValueTypeB, 7> <<< num_blocks, block_size>>>(R_row_offsets_ptr, R_column_indices_ptr, r_ptr, rr_ptr, max_threads);
+            cudaCheckError();
+            break;
+
         case 8:
             restrictResidualBlockDiaCsrKernel<IndexType, ValueTypeB, 8> <<< num_blocks, block_size>>>(R_row_offsets_ptr, R_column_indices_ptr, r_ptr, rr_ptr, max_threads);
             cudaCheckError();

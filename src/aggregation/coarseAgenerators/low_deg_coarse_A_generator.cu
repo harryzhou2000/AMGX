@@ -718,8 +718,12 @@ void fill_A_kernel_NxN_large( const int  R_num_rows, // same as num_aggregates.
         // Load the range of the row.
         int r_col_it  = R_rows[r_row_id + 0];
         int r_col_end = R_rows[r_row_id + 1];
-        // Diagonal value (each half warp stores a diagonal element).
-        Value_type ac_diag(types::util<Value_type>::get_zero());
+        // One warp owns one coarse row; each lane keeps distinct block entries.
+        // N*N may exceed 32: retain every lane tile, including the diagonal.
+        Value_type ac_diag[NUM_BLOCK_ITERS_PER_WARP];
+#pragma unroll
+        for (int i = 0; i < NUM_BLOCK_ITERS_PER_WARP; ++i)
+            ac_diag[i] = types::util<Value_type>::get_zero();
 
         // Iterate over the columns of R.
         for ( ; utils::any(r_col_it < r_col_end) ; r_col_it += NUM_ITEMS_PER_WARP )
@@ -730,7 +734,10 @@ void fill_A_kernel_NxN_large( const int  R_num_rows, // same as num_aggregates.
             // Update the diagonal if needed.
             if ( HAS_DIAG )
             {
-                ac_diag = ac_diag + A_vals[NxN * A_diag[a_row_id] + lane_id];
+#pragma unroll
+                for (int i = 0; i < NUM_BLOCK_ITERS_PER_WARP; ++i)
+                    if (WARP_SIZE * i + lane_id < NxN)
+                        ac_diag[i] = ac_diag[i] + A_vals[NxN * A_diag[a_row_id] + WARP_SIZE * i + lane_id];
             }
 
             // Load the range of the row of A.
@@ -738,7 +745,7 @@ void fill_A_kernel_NxN_large( const int  R_num_rows, // same as num_aggregates.
             int a_col_end   = A_rows[a_row_id + 1];
 
             // Iterate over the range of columns of B.
-            for ( ; utils::any(a_col_begin < a_col_end) ; a_col_begin += NxN )
+            for ( ; utils::any(a_col_begin < a_col_end) ; a_col_begin += WARP_SIZE )
             {
                 int a_col_it = a_col_begin + lane_id;
                 // Is it active.
@@ -763,7 +770,7 @@ void fill_A_kernel_NxN_large( const int  R_num_rows, // same as num_aggregates.
                 int ac_idx = ac_col_it + set.find_index( key, index, false );
 
                 // Iterate over the NxN items.
-                for ( int k = 0 ; k < NxN ; ++k )
+                for ( int k = 0 ; k < WARP_SIZE ; ++k )
                 {
                     int uniform_ac_col = utils::shfl( ac_col_id, k );
                     int uniform_ac_idx = utils::shfl( ac_idx,    k );
@@ -792,12 +799,11 @@ void fill_A_kernel_NxN_large( const int  R_num_rows, // same as num_aggregates.
                         // Update the diagonal if it is a diagonal term.
                         if ( HAS_DIAG && uniform_ac_col == r_row_id )
                         {
-                            ac_diag = ac_diag + a_value;
-                            uniform_ac_col = -1;
+                            ac_diag[i] = ac_diag[i] + a_value;
                         }
 
                         // Update the value.
-                        if ( uniform_ac_col != -1 && (WARP_SIZE * i + lane_id) < NxN)
+                        if ( uniform_ac_col != -1 && !(HAS_DIAG && uniform_ac_col == r_row_id) && (WARP_SIZE * i + lane_id) < NxN)
                         {
                             utils::atomic_add( &Ac_vals[NxN * uniform_ac_idx + WARP_SIZE * i + lane_id], a_value );
                         }
@@ -808,12 +814,11 @@ void fill_A_kernel_NxN_large( const int  R_num_rows, // same as num_aggregates.
 
         if ( HAS_DIAG )
         {
-            if ( !FORCE_DETERMINISM )
-            {
-                ac_diag = utils::warp_reduce<NxN, utils::Add>( ac_diag );
-            }
-
-            Ac_vals[NxN * Ac_diag[r_row_id] + lane_id] = ac_diag;
+            // Distinct lanes are distinct matrix entries, never reduction peers.
+#pragma unroll
+            for (int i = 0; i < NUM_BLOCK_ITERS_PER_WARP; ++i)
+                if (WARP_SIZE * i + lane_id < NxN)
+                    Ac_vals[NxN * Ac_diag[r_row_id] + WARP_SIZE * i + lane_id] = ac_diag[i];
         }
     }
 }
@@ -1063,6 +1068,50 @@ void fill_A_dispatch( Workspace &hash_wk,
 
         case 5:
             fill_A_kernel_NxN<Value_type, 5, CTA_SIZE, SMEM_SIZE, 32, HAS_DIAG, false> <<< GRID_SIZE, CTA_SIZE>>>(
+                R_num_rows,
+                R_rows,
+                R_cols,
+                A_rows,
+                A_cols,
+                A_diag,
+                A_vals,
+                aggregates,
+                Ac_rows,
+                Ac_cols,
+                Ac_pos,
+                Ac_diag,
+                Ac_vals,
+                hash_wk.get_gmem_size(),
+                hash_wk.get_keys(),
+                reinterpret_cast<int *>( hash_wk.get_vals() ),
+                hash_wk.get_work_queue() );
+                cudaCheckError();
+            break;
+
+        case 6:
+            fill_A_kernel_NxN_large<Value_type, 6, CTA_SIZE, SMEM_SIZE, 32, HAS_DIAG, false, 2> <<< GRID_SIZE, CTA_SIZE>>>(
+                R_num_rows,
+                R_rows,
+                R_cols,
+                A_rows,
+                A_cols,
+                A_diag,
+                A_vals,
+                aggregates,
+                Ac_rows,
+                Ac_cols,
+                Ac_pos,
+                Ac_diag,
+                Ac_vals,
+                hash_wk.get_gmem_size(),
+                hash_wk.get_keys(),
+                reinterpret_cast<int *>( hash_wk.get_vals() ),
+                hash_wk.get_work_queue() );
+                cudaCheckError();
+            break;
+
+        case 7:
+            fill_A_kernel_NxN_large<Value_type, 7, CTA_SIZE, SMEM_SIZE, 32, HAS_DIAG, false, 2> <<< GRID_SIZE, CTA_SIZE>>>(
                 R_num_rows,
                 R_rows,
                 R_cols,

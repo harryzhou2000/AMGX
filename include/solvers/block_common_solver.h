@@ -344,6 +344,10 @@ void compute_block_inverse2( volatile ValueType *s_Amat, const int s_offset, con
 #define s_A2_rval(ROW,COL)   types::util<ValueType>::volcast(s_Amat[s_offset+(ROW)*bsize+(COL)])
 ValueType diag;
 ValueType tmp;
+    // Sixteen lanes cooperate on one block. Volatile shared memory alone does
+    // not establish cross-lane ordering on independently scheduled GPUs.
+    const unsigned lane_mask = 0xffffu << ((threadIdx.x & 16) ? 16 : 0);
+    __syncwarp(lane_mask);
 
     for (int row = 0; row < bsize; row++)
     {
@@ -356,20 +360,24 @@ ValueType tmp;
                 s_A2_lval(tmp, row, j_ind + t2 * 4);
             }
 
+        __syncwarp(lane_mask);
         for (int t1 = 0; t1 < tile_num; t1++)
             for (int t2 = 0; t2 < tile_num; t2++)
                 if ((i_ind + t1 * 4 != row) && !(j_ind + t2 * 4 == row) && ((t1 * 4 + i_ind) < bsize) && ((t2 * 4 + j_ind) < bsize))
                 {
-                    tmp = types::util<ValueType>::invert((s_A2_rval(i_ind + t1 * 4, row) * s_A2_rval(row, j_ind + t2 * 4)) + s_A2_rval(i_ind + t1 * 4, j_ind + t2 * 4));
+                    // Schur update A_ij -= A_ik*A_kj, matching the <=5 path.
+                    tmp = types::util<ValueType>::invert(s_A2_rval(i_ind + t1 * 4, row) * s_A2_rval(row, j_ind + t2 * 4)) + s_A2_rval(i_ind + t1 * 4, j_ind + t2 * 4);
                     s_A2_lval(tmp, i_ind + t1 * 4, j_ind + t2 * 4);
                 }
 
+        __syncwarp(lane_mask);
         for (int t2 = 0; t2 < tile_num; t2++)
             if (i_ind == 0 && (t2 * 4 + j_ind) < bsize)
             {
                 tmp = ((j_ind + t2 * 4) == row) ? diag : types::util<ValueType>::invert(s_A2_rval(j_ind + t2 * 4, row) * diag);
                 s_A2_lval(tmp, j_ind + t2 * 4, row)
             }
+        __syncwarp(lane_mask);
     }
 
     for (int t1 = 0; t1 < tile_num; t1++)

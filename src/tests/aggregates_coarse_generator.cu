@@ -115,14 +115,16 @@ void compare_matrices_kernel( const int  num_rows,
         {
             int a_it = A_diag[row_id];
             int b_it = B_diag[row_id];
-            Value_type a_val = A_vals[a_it];
-            Value_type b_val = A_vals[b_it];
-
-            if ( !equal( a_val, b_val ) )
+            for (int k = 0; k < block_size_sq; ++k)
             {
-                printf( "ERROR: row=%d: Diag A[%d]=%f and B[%d]=%f are different!!!\n", row_id, a_it, a_val, b_it, b_val );
-                ok[0] = 0;
-                return;
+                Value_type a_val = A_vals[block_size_sq * a_it + k];
+                Value_type b_val = B_vals[block_size_sq * b_it + k];
+                if (!equal(a_val, b_val))
+                {
+                    printf("ERROR: separate diagonal differs at row=%d component=%d!!!\n", row_id, k);
+                    ok[0] = 0;
+                    return;
+                }
             }
         }
 
@@ -261,7 +263,7 @@ void run()
     UNITTEST_ASSERT_TRUE(h_generator != NULL);
     cudaCheckError();
     MatrixA A, Ac;
-    int bsizes[] = {1, 2, 3, 4, 5, 8, 10};
+    int bsizes[] = {1, 2, 3, 4, 5, 6, 7, 8, 10};
 
     for (int diag_prop = 0; diag_prop < 2; diag_prop++)
     {
@@ -270,11 +272,19 @@ void run()
             int b = bsizes[bs];
             // setup matrix A
             cudaCheckError();
-            generateMatrixRandomStruct<TConfig>::generate(A, 128, diag_prop, b, false);
+            // Dense enough to cross the 32-column warp traversal boundary.
+            generateMatrixRandomStruct<TConfig>::generateExact(A, 128, diag_prop, b, false, b > 5 ? 128 : 10);
             cudaCheckError();
             random_fill(A);
             cudaCheckError();
             Matrix_h h_A = A;
+            if (b > 5)
+            {
+                int largest_row = 0;
+                for (int i = 0; i < h_A.get_num_rows(); ++i)
+                    largest_row = std::max(largest_row, int(h_A.row_offsets[i + 1] - h_A.row_offsets[i]));
+                UNITTEST_ASSERT_TRUE(largest_row > 32);
+            }
             cudaCheckError();
             Matrix_h h_Ac;
             cudaCheckError();
@@ -301,6 +311,13 @@ void run()
             // compute Galerkin product on CPU and GPU
             h_generator->computeAOperator(h_A, h_Ac, h_aggregates, h_R_row_offsets, h_R_col_indices, num_aggregates);
             d_generator->computeAOperator(A, Ac, aggregates, R_row_offsets, R_col_indices, num_aggregates);
+            if (b > 5)
+            {
+                int largest_coarse_row = 0;
+                for (int i = 0; i < h_Ac.get_num_rows(); ++i)
+                    largest_coarse_row = std::max(largest_coarse_row, int(h_Ac.row_offsets[i + 1] - h_Ac.row_offsets[i]));
+                UNITTEST_ASSERT_TRUE(largest_coarse_row > 32);
+            }
             // simple check on matrix size
             this->PrintOnFail("Coarse matrix has wrong size %i != num aggregates %i", Ac.get_num_rows(), num_aggregates);
             UNITTEST_ASSERT_TRUE( Ac.get_num_rows() == num_aggregates );
