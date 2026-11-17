@@ -82,6 +82,12 @@ class Aggregation_AMG_Level_Base : public AMG_Level<T_Config>
             delete m_coarseAGenerator;
         }
 
+        size_t transfer_storage_bytes() const
+        {
+            return (m_R_row_offsets.capacity() + m_R_column_indices.capacity() +
+                    m_aggregates.capacity() + m_aggregates_fine_idx.capacity()) * sizeof(IndexType);
+        }
+
         void createCoarseVertices();
         void createCoarseMatrices();
         bool isClassicalAMGLevel() { return false; }

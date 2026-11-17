@@ -1154,6 +1154,50 @@ void fill_A_dispatch( Workspace &hash_wk,
                 cudaCheckError();
             break;
 
+        case 9:
+            fill_A_kernel_NxN_large<Value_type, 9, CTA_SIZE, SMEM_SIZE, 32, HAS_DIAG, false, 3> <<< GRID_SIZE, CTA_SIZE>>>(
+                R_num_rows,
+                R_rows,
+                R_cols,
+                A_rows,
+                A_cols,
+                A_diag,
+                A_vals,
+                aggregates,
+                Ac_rows,
+                Ac_cols,
+                Ac_pos,
+                Ac_diag,
+                Ac_vals,
+                hash_wk.get_gmem_size(),
+                hash_wk.get_keys(),
+                reinterpret_cast<int *>( hash_wk.get_vals() ),
+                hash_wk.get_work_queue() );
+                cudaCheckError();
+            break;
+
+        case 19:
+            fill_A_kernel_NxN_large<Value_type, 19, CTA_SIZE, SMEM_SIZE, 32, HAS_DIAG, false, 12> <<< GRID_SIZE, CTA_SIZE>>>(
+                R_num_rows,
+                R_rows,
+                R_cols,
+                A_rows,
+                A_cols,
+                A_diag,
+                A_vals,
+                aggregates,
+                Ac_rows,
+                Ac_cols,
+                Ac_pos,
+                Ac_diag,
+                Ac_vals,
+                hash_wk.get_gmem_size(),
+                hash_wk.get_keys(),
+                reinterpret_cast<int *>( hash_wk.get_vals() ),
+                hash_wk.get_work_queue() );
+                cudaCheckError();
+            break;
+
         case 10:
             fill_A_kernel_NxN_large<Value_type, 10, CTA_SIZE, SMEM_SIZE, 32, HAS_DIAG, false, 4> <<< GRID_SIZE, CTA_SIZE>>>(
                 R_num_rows,

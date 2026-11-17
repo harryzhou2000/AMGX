@@ -263,7 +263,7 @@ void run()
     UNITTEST_ASSERT_TRUE(h_generator != NULL);
     cudaCheckError();
     MatrixA A, Ac;
-    int bsizes[] = {1, 2, 3, 4, 5, 6, 7, 8, 10};
+    int bsizes[] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 19};
 
     for (int diag_prop = 0; diag_prop < 2; diag_prop++)
     {
@@ -344,5 +344,41 @@ AMGX_FORALL_BUILDS_DEVICE(AMGX_CASE_LINE)
 
 //AggregatesCoarseGeneratorTest<TemplateMode<AMGX_mode_dDDI>::Type> AggregatesCoarseGeneratorTest_dDDI;
 
+
+DECLARE_UNITTEST_BEGIN(NativeValuesStorageTest);
+void run()
+{
+    typedef typename Matrix<TConfig>::MVector Values;
+    Values owner(38, typename Values::value_type(2));
+    auto *pointer = owner.raw();
+    {
+        Values borrowed;
+        borrowed.bind_external(pointer, owner.size());
+        UNITTEST_ASSERT_TRUE(borrowed.is_external());
+        UNITTEST_ASSERT_TRUE(borrowed.raw() == pointer);
+        UNITTEST_ASSERT_EQUAL(borrowed.size(), owner.size());
+        UNITTEST_ASSERT_EQUAL(borrowed.end() - borrowed.begin(), owner.size());
+        // Copying an external descriptor must deep-copy values, not the empty
+        // base-vector allocation or the non-owning pointer.
+        Values copy(borrowed);
+        UNITTEST_ASSERT_TRUE(!copy.is_external());
+        UNITTEST_ASSERT_TRUE(copy.raw() != pointer);
+        UNITTEST_ASSERT_EQUAL(static_cast<typename Values::value_type>(copy[17]), typename Values::value_type(2));
+        borrowed.resize(owner.size());
+        UNITTEST_ASSERT_EXCEPTION_START;
+        borrowed.resize(owner.size() + 1);
+        UNITTEST_ASSERT_EXCEPTION_END_AMGX_ERR(AMGX_ERR_BAD_PARAMETERS);
+        UNITTEST_ASSERT_EXCEPTION_START;
+        borrowed = owner;
+        UNITTEST_ASSERT_EXCEPTION_END_AMGX_ERR(AMGX_ERR_BAD_PARAMETERS);
+        UNITTEST_ASSERT_TRUE(borrowed.raw() == pointer);
+    }
+    // Destruction of the borrowed view never frees the retained caller buffer.
+    owner[17] = typename Values::value_type(3);
+    UNITTEST_ASSERT_EQUAL(owner.raw(), pointer);
+    UNITTEST_ASSERT_EQUAL(static_cast<typename Values::value_type>(owner[17]), typename Values::value_type(3));
+}
+DECLARE_UNITTEST_END(NativeValuesStorageTest);
+NativeValuesStorageTest<TemplateMode<AMGX_mode_dDDI>::Type> NativeValuesStorageTest_dDDI;
 
 } //namespace amgx

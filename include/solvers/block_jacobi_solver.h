@@ -56,6 +56,9 @@ class BlockJacobiSolver_Base : public Solver<T_Config>
         virtual void smooth_BxB(Matrix<T_Config> &A, VVector &b, VVector &x, bool xIsZero, ViewType separation_flags) = 0;
 
     public:
+        size_t inverse_storage_bytes() const { return Dinv.capacity() * sizeof(ValueTypeA); }
+        size_t workspace_storage_bytes() const { return (t_res.capacity() + y.capacity()) * sizeof(ValueTypeB); }
+
         // Constructor.
         BlockJacobiSolver_Base( AMG_Config &cfg, const std::string &cfg_scope);
 

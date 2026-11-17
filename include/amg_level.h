@@ -164,6 +164,9 @@ class AMG_Level
 
         inline size_t getNumRows() { return A->get_num_rows(); }
 
+        size_t cycle_storage_bytes() const { return (bc.capacity() + xc.capacity() + r.capacity()) * sizeof(ValueTypeB); }
+        virtual size_t transfer_storage_bytes() const { return 0; }
+
         //todo add smoother allocation also...
         inline size_t bytes(bool device_only = false)
         {

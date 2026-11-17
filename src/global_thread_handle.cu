@@ -2,6 +2,9 @@
 //
 // SPDX-License-Identifier: BSD-3-Clause
 
+#include <amgx_c.h>
+#include <cstdlib>
+#include <string>
 #include <global_thread_handle.h>
 #include <iostream>
 #include <memory>
@@ -496,6 +499,32 @@ struct MemoryManager
         return m_use_cudamallocasync;
     }
 
+    // Optional logical allocation attribution. This does not include CUDA
+    // library-private allocations or count a stream-queued free as completed.
+    bool m_track_allocations = std::getenv("AMGX_TRACK_ALLOCATIONS") &&
+                               std::string(std::getenv("AMGX_TRACK_ALLOCATIONS")) == "1";
+    std::map<void *, size_t> m_requested_blocks;
+    size_t m_requested_live = 0, m_requested_peak = 0;
+    void record_allocation(void *pointer, size_t bytes)
+    {
+        if (!m_track_allocations || !pointer) return;
+        std::lock_guard<std::recursive_mutex> guard(m_mutex);
+        m_requested_blocks[pointer] = bytes;
+        m_requested_live += bytes;
+        m_requested_peak = std::max(m_requested_peak, m_requested_live);
+    }
+    void record_release(void *pointer)
+    {
+        if (!m_track_allocations || !pointer) return;
+        std::lock_guard<std::recursive_mutex> guard(m_mutex);
+        auto found = m_requested_blocks.find(pointer);
+        if (found != m_requested_blocks.end())
+        {
+            m_requested_live -= found->second;
+            m_requested_blocks.erase(found);
+        }
+    }
+
     // Mutex to make functions thread-safe.
     std::recursive_mutex m_mutex;
 
@@ -856,7 +885,9 @@ cudaError_t cudaMallocAsync(void **ptr, size_t size, cudaStream_t stream)
 #ifdef USE_CUDAMALLOCASYNC
     if (manager.uses_cudamallocasync())
     {
-        return ::cudaMallocAsync(ptr, size, stream);
+        const auto result = ::cudaMallocAsync(ptr, size, stream);
+        if (result == cudaSuccess) manager.record_allocation(*ptr, size);
+        return result;
     }
 #endif
 
@@ -964,12 +995,14 @@ cudaError_t cudaMallocAsync(void **ptr, size_t size, cudaStream_t stream)
     }
 
 #endif
+    if (error == cudaSuccess) manager.record_allocation(*ptr, size);
     return error;
 }
 
 cudaError_t cudaFreeAsync(void *ptr, cudaStream_t stream)
 {
     MemoryManager &manager = MemoryManager::get_instance();
+    manager.record_release(ptr);
 
 #ifdef USE_CUDAMALLOCASYNC
     if (manager.uses_cudamallocasync())
@@ -1117,6 +1150,47 @@ void joinDevicePools()
     {
         manager.sync_device_pool(it->second);
     }
+}
+
+void getAllocatorMemoryInfo(AMGX_allocator_memory_info &info)
+{
+    MemoryManager &manager = MemoryManager::get_instance();
+    std::lock_guard<std::recursive_mutex> guard(manager.m_mutex);
+    info = {};
+    info.tracking_enabled = manager.m_track_allocations;
+    info.requested_live_bytes = manager.m_requested_live;
+    info.requested_peak_bytes = manager.m_requested_peak;
+    info.live_allocations = manager.m_requested_blocks.size();
+    std::vector<const MemoryPool *> seen;
+    const auto pool = [&](const MemoryPool *p, bool pinned)
+    {
+        if (!p || std::find(seen.begin(), seen.end(), p) != seen.end()) return;
+        seen.push_back(p);
+        auto &used = pinned ? info.pinned_pool_used_bytes : info.device_pool_used_bytes;
+        auto &reserved = pinned ? info.pinned_pool_reserved_bytes : info.device_pool_reserved_bytes;
+        used += p->get_used_mem();
+        reserved += p->get_used_mem() + p->get_free_mem();
+    };
+    pool(manager.m_main_device_pool, false);
+    for (const auto &p : manager.m_thread_device_pools) pool(p.second, false);
+    pool(manager.m_main_pinned_pool, true);
+    for (const auto &p : manager.m_thread_pinned_pools) pool(p.second, true);
+#if CUDART_VERSION >= 11020
+    int device = 0, supported = 0;
+    if (::cudaGetDevice(&device) == cudaSuccess &&
+        ::cudaDeviceGetAttribute(&supported, cudaDevAttrMemoryPoolsSupported, device) == cudaSuccess && supported)
+    {
+        cudaMemPool_t p;
+        if (::cudaDeviceGetDefaultMemPool(&p, device) == cudaSuccess)
+        {
+            info.cuda_pool_available =
+                ::cudaMemPoolGetAttribute(p, cudaMemPoolAttrUsedMemCurrent, &info.cuda_pool_used_bytes) == cudaSuccess &&
+                ::cudaMemPoolGetAttribute(p, cudaMemPoolAttrReservedMemCurrent, &info.cuda_pool_reserved_bytes) == cudaSuccess &&
+                ::cudaMemPoolGetAttribute(p, cudaMemPoolAttrUsedMemHigh, &info.cuda_pool_used_peak_bytes) == cudaSuccess &&
+                ::cudaMemPoolGetAttribute(p, cudaMemPoolAttrReservedMemHigh, &info.cuda_pool_reserved_peak_bytes) == cudaSuccess;
+        }
+    }
+#endif
 }
 
 void printInfo()

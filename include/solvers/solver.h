@@ -168,6 +168,10 @@ class Solver : public AuxData
         // Print the solver settings
         virtual void printSolverParameters() const {}
 
+        /// Opt-in hierarchy memory query; capacities, not allocator reserve.
+        virtual size_t inverse_storage_bytes() const { return 0; }
+        virtual size_t workspace_storage_bytes() const { return 0; }
+
         // Sets the solver name
         inline void setName(std::string &solver_name ) { m_solver_name = solver_name; }
 

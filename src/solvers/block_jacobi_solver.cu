@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: BSD-3-Clause
 
+#include <type_traits>
 #include <solvers/block_jacobi_solver.h>
 #include <solvers/block_common_solver.h>
 #include <gaussian_elimination.h>
@@ -671,6 +672,7 @@ void jacobiSmooth4by4BlockDiaCsrKernel_NAIVE_tex_readDinv2(const IndexType *row_
     int eighthwarp_id = row_offset + (tid >> log_bsize);
     const int block_eighthwarp_id = threadIdx.x >> log_bsize;
     const int vec_entry_index = threadIdx.x & (bsize - 1);
+    const unsigned lane_mask = ((1u << bsize) - 1) << ((threadIdx.x & 31) / bsize * bsize);
     volatile __shared__ ValueTypeB s_xtemp[ bsize * eighthwarps_per_block ];
     ValueTypeB bmAx, xin;
     ValueTypeB temp[bsize];
@@ -685,6 +687,7 @@ void jacobiSmooth4by4BlockDiaCsrKernel_NAIVE_tex_readDinv2(const IndexType *row_
         // Contribution from diagonal
         xin = x[offset];
         types::util<ValueTypeB>::volcast(xin, s_xtemp + threadIdx.x);
+        __syncwarp(lane_mask);
         // Load dia_values and do matrix multiply
         loadAsVector<bsize>(nonzero_values + bsize_sq * dia_indices[i] + vec_entry_index * bsize, temp);
         s_offset = block_eighthwarp_id * bsize;
@@ -695,6 +698,7 @@ void jacobiSmooth4by4BlockDiaCsrKernel_NAIVE_tex_readDinv2(const IndexType *row_
             bmAx = bmAx - temp[m] * types::util<ValueTypeB>::volcast(s_xtemp[s_offset + m]);
         }
 
+        __syncwarp(lane_mask);
         // Contribution from each nonzero column
         int jmax = row_offsets[i + 1];
 
@@ -706,6 +710,7 @@ void jacobiSmooth4by4BlockDiaCsrKernel_NAIVE_tex_readDinv2(const IndexType *row_
             {
                 offset = jcol * bsize + vec_entry_index;
                 types::util<ValueTypeB>::volcast(x[offset], s_xtemp + threadIdx.x);
+                __syncwarp(lane_mask);
                 // Load nonzero_values
                 s_offset = block_eighthwarp_id * bsize;
                 offset = jind * bsize * bsize + vec_entry_index * bsize;
@@ -716,10 +721,12 @@ void jacobiSmooth4by4BlockDiaCsrKernel_NAIVE_tex_readDinv2(const IndexType *row_
                 {
                     bmAx = bmAx - temp[m] * types::util<ValueTypeB>::volcast(s_xtemp[s_offset + m]);
                 }
+                __syncwarp(lane_mask);
             }
         }
 
         types::util<ValueTypeB>::volcast(bmAx, s_xtemp + threadIdx.x);
+        __syncwarp(lane_mask);
         bmAx = types::util<ValueTypeB>::get_zero();
         // 2. Multiply by Dinv
         // Load Dinv and multiply to RHS
@@ -733,6 +740,7 @@ void jacobiSmooth4by4BlockDiaCsrKernel_NAIVE_tex_readDinv2(const IndexType *row_
             bmAx = bmAx + temp[m] * types::util<ValueTypeB>::volcast(s_xtemp[s_offset + m]);
         }
 
+        __syncwarp(lane_mask);
         xout[i * bsize + vec_entry_index] = xin + bmAx * weight;
         eighthwarp_id += gridDim.x * blockDim.x >> log_bsize;
     }
@@ -1089,18 +1097,26 @@ void BlockJacobiSolver<TemplateConfig<AMGX_device, t_vecPrec, t_matPrec, t_indPr
     const IndexType *A_dia_idx_ptr = A.diag.raw();
     ValueTypeA *Dinv_ptr = this->Dinv.raw();
     const ValueTypeA *A_nonzero_values_ptr = A.values.raw();
-    // MUST BE MULTIPLE OF 16
-    const int threads_per_block = 512;
-    const int halfwarps_per_block = threads_per_block / 16;
-    const int num_blocks = std::min(AMGX_GRID_MAX_SIZE, (int) (A.get_num_rows() - 1) / halfwarps_per_block + 1);
-    // The kernel assigns tile storage per launched thread, not per block.
-    const size_t tile_count = (bsize - 1) / 4 + 1;
-    MVector temp(size_t(num_blocks) * threads_per_block * tile_count * tile_count);
-    ValueTypeA *temp_ptr = temp.raw();
-    cudaFuncSetCacheConfig(setupBlockJacobiSmoothbBigBlockDiaCsrKernel<IndexType, ValueTypeA, threads_per_block, halfwarps_per_block>, cudaFuncCachePreferL1);
-    setupBlockJacobiSmoothbBigBlockDiaCsrKernel<IndexType, ValueTypeA, threads_per_block, halfwarps_per_block> <<< num_blocks, threads_per_block, sizeof(ValueTypeA)*bsize *bsize *halfwarps_per_block>>>
-    (A_row_offsets_ptr, A_column_indices_ptr, A_nonzero_values_ptr, A_dia_idx_ptr, Dinv_ptr, A.get_num_rows(), bsize, bsize * bsize, temp_ptr);
-    cudaCheckError();
+    // One half warp cooperates on a block. Large modal blocks must not use
+    // the 512-thread launch: 32*19*19 doubles exceeds default shared memory.
+    // Both choices stay below 48 KiB for every supported scalar precision.
+    const auto launch = [&](auto threads)
+    {
+        constexpr int threads_per_block = decltype(threads)::value;
+        constexpr int halfwarps_per_block = threads_per_block / 16;
+        const int num_blocks = std::min(AMGX_GRID_MAX_SIZE, (int)(A.get_num_rows() - 1) / halfwarps_per_block + 1);
+        const size_t tile_count = (bsize - 1) / 4 + 1;
+        MVector temp(size_t(num_blocks) * threads_per_block * tile_count * tile_count);
+        const size_t shared_bytes = sizeof(ValueTypeA) * bsize * bsize * halfwarps_per_block;
+        cudaFuncSetCacheConfig(setupBlockJacobiSmoothbBigBlockDiaCsrKernel<IndexType, ValueTypeA, threads_per_block, halfwarps_per_block>, cudaFuncCachePreferL1);
+        setupBlockJacobiSmoothbBigBlockDiaCsrKernel<IndexType, ValueTypeA, threads_per_block, halfwarps_per_block><<<num_blocks, threads_per_block, shared_bytes>>>
+            (A_row_offsets_ptr, A_column_indices_ptr, A_nonzero_values_ptr, A_dia_idx_ptr, Dinv_ptr, A.get_num_rows(), bsize, bsize * bsize, temp.raw());
+        cudaCheckError();
+    };
+    if (sizeof(ValueTypeA) * bsize * bsize * 32 > 48 * 1024)
+        launch(std::integral_constant<int, 64>{});
+    else
+        launch(std::integral_constant<int, 512>{});
 }
 
 

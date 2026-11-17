@@ -673,6 +673,15 @@ class MatrixBase : public AuxData, public Operator<T_Config>
         /********************************************************/
         inline unsigned int getProps() const { return props; };
 
+        size_t numeric_owned_bytes() const { return values.is_external() ? 0 : values.capacity() * sizeof(value_type); }
+        size_t numeric_borrowed_bytes() const { return values.is_external() ? values.size() * sizeof(value_type) : 0; }
+        size_t pattern_capacity_bytes() const
+        {
+            return (row_offsets.capacity() + col_indices.capacity() + row_indices.capacity() + diag.capacity() +
+                    m_seq_offsets.capacity() + m_larger_color_offsets.capacity() + m_smaller_color_offsets.capacity() +
+                    m_diag_end_offsets.capacity() + m_values_permutation_vector.capacity()) * sizeof(index_type);
+        }
+
         inline size_t bytes(bool device_only = false)
         {
             return row_offsets.bytes(device_only) +
@@ -784,6 +793,11 @@ class MatrixBase : public AuxData, public Operator<T_Config>
         inline bool getColsReorderedByColor() const {return m_cols_reordered_by_color;}
 
         inline bool is_matrix_setup() const {return m_is_matrix_setup;}
+        void reset_matrix_setup()
+        {
+            if (is_initialized()) FatalError("Cannot reset initialized matrix setup", AMGX_ERR_BAD_PARAMETERS);
+            m_is_matrix_setup = false;
+        }
 
         inline void set_is_matrix_setup(bool is_matrix_setup) {m_is_matrix_setup = is_matrix_setup;}
 

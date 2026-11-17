@@ -43,6 +43,8 @@ class AlgebraicMultigrid_Solver: public Solver<T_Config>
         // Override parent attribute.
         Matrix<T_Config> *m_A;
     public:
+        AMG<vecPrec, matPrec, indPrec> &hierarchy() { return m_amg; }
+
         // Constructor.
         AlgebraicMultigrid_Solver( AMG_Config &cfg, const std::string &cfg_scope, ThreadManager *tmng );
 

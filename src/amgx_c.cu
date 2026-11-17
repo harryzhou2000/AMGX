@@ -11,6 +11,8 @@
 #include <thrust/copy.h>
 #include <thrust/fill.h>
 #include <amg_solver.h>
+#include <amg.h>
+#include <solvers/algebraic_multigrid_solver.h>
 #include "amg_signal.h"
 #include <matrix_io.h>
 #include "amgx_c.h"
@@ -27,6 +29,7 @@
 #include "util.h"
 #include "reorder_partition.h"
 #include <algorithm>
+#include <climits>
 #include <solvers/solver.h>
 #include <matrix.h>
 #include <vector.h>
@@ -874,6 +877,8 @@ inline AMGX_RC matrix_upload_all(AMGX_matrix_handle mtx,
         //FatalError("Error: Failure in matrix_upload_all().\n", AMGX_ERR_BAD_PARAMETERS);
         typedef typename MatPrecisionMap<AMGX_GET_MODE_VAL(AMGX_MatPrecision, CASE)>::Type ValueType;
 
+    if (A.values.is_external())
+        AMGX_CHECK_API_ERROR(AMGX_ERR_BAD_PARAMETERS, resources)
     A.set_initialized(0);
     cudaSetDevice(A.getResources()->getDevice(0));
     cudaCheckError();
@@ -933,6 +938,8 @@ inline AMGX_RC matrix_replace_coefficients(AMGX_matrix_handle mtx,
     typedef CWrapHandle<AMGX_matrix_handle, MatrixLetterT> MatrixW;
     MatrixW wrapA(mtx);
     MatrixLetterT &A = *wrapA.wrapped();
+    if (A.values.is_external())
+        AMGX_CHECK_API_ERROR(AMGX_ERR_BAD_PARAMETERS, resources)
     cudaSetDevice(A.getResources()->getDevice(0));
     cudaCheckError();
     typedef typename MatPrecisionMap<AMGX_GET_MODE_VAL(AMGX_MatPrecision, CASE)>::Type ValueType;
@@ -3041,6 +3048,126 @@ extern "C" {
         nvtxRange nvrf(__func__);
 
         return AMGX_matrix_upload_all_impl(mtx, n, nnz, block_dimx, block_dimy, row_ptrs, col_indices, data, diag_data);
+    }
+
+    AMGX_RC AMGX_API AMGX_get_allocator_memory(AMGX_allocator_memory_info *info)
+    {
+        if (!info) return AMGX_RC_BAD_PARAMETERS;
+        AMGX_ERROR rc = AMGX_OK;
+        AMGX_TRIES()
+        {
+            memory::getAllocatorMemoryInfo(*info);
+        }
+        AMGX_CATCHES(rc)
+        AMGX_CHECK_API_ERROR_NORSRC(rc)
+        return AMGX_RC_OK;
+    }
+
+    AMGX_RC AMGX_API AMGX_solver_get_hierarchy_memory(AMGX_solver_handle handle,
+        int capacity, AMGX_level_memory_info *levels, int *count)
+    {
+        if (!count || capacity < 0 || (capacity && !levels)) return AMGX_RC_BAD_PARAMETERS;
+        Resources *resources;
+        AMGX_CHECK_API_ERROR_NORSRC(getAMGXerror(getResourcesFromSolverHandle(handle, &resources)))
+        if (get_mode_from<AMGX_solver_handle>(handle) != AMGX_mode_dDDI) return AMGX_RC_BAD_MODE;
+        AMGX_ERROR rc = AMGX_OK;
+        AMGX_TRIES()
+        {
+            typedef typename TemplateMode<AMGX_mode_dDDI>::Type Config;
+            auto *wrapped = get_mode_object_from<AMGX_mode_dDDI, AMG_Solver, AMGX_solver_handle>(handle);
+            auto *solver = dynamic_cast<AlgebraicMultigrid_Solver<Config> *>(wrapped->getSolverObject());
+            if (!solver) return AMGX_RC_BAD_MODE;
+            typename MemorySpaceMap<AMGX_device>::Type device;
+            typename MemorySpaceMap<AMGX_host>::Type host;
+            auto *level = solver->hierarchy().getFinestLevel(device);
+            int n = 0;
+            for (; level; level = level->getNextLevel(device), ++n)
+            {
+                if (level->getNextLevel(host)) return AMGX_RC_NOT_SUPPORTED_TARGET;
+                if (n < capacity)
+                {
+                    auto &m = level->getA();
+                    auto *smooth = level->getSmoother();
+                    levels[n] = {n, m.get_num_rows(), m.get_num_nz(), m.get_block_dimy(),
+                        m.numeric_owned_bytes(), m.numeric_borrowed_bytes(), m.pattern_capacity_bytes(),
+                        smooth ? smooth->inverse_storage_bytes() : 0, level->transfer_storage_bytes(),
+                        level->cycle_storage_bytes() + (smooth ? smooth->workspace_storage_bytes() : 0)};
+                }
+            }
+            *count = n;
+        }
+        AMGX_CATCHES(rc)
+        AMGX_CHECK_API_ERROR(rc, resources)
+        return AMGX_RC_OK;
+    }
+
+    AMGX_RC AMGX_API AMGX_matrix_attach_device_values(AMGX_matrix_handle mtx,
+        int n, int nnz, int block_dim, const int *row_ptrs, const int *col_indices,
+        void *values, size_t value_count, int separate_diagonal)
+    {
+        Resources *resources;
+        AMGX_CHECK_API_ERROR_NORSRC(getAMGXerror(getResourcesFromMatrixHandle(mtx, &resources)))
+        if (get_mode_from<AMGX_matrix_handle>(mtx) != AMGX_mode_dDDI || n < 1 || nnz < 0 ||
+            !row_ptrs || (nnz && !col_indices) || !values || block_dim < 1 ||
+            (block_dim > 10 && block_dim != 19) || (separate_diagonal != 0 && separate_diagonal != 1))
+            return AMGX_RC_BAD_PARAMETERS;
+        const size_t blocks = size_t(nnz) + (separate_diagonal ? size_t(n) : size_t(1));
+        // Matrix::resize and selected numeric/vector kernels retain int32
+        // element arithmetic, not only int32 CSR indices. Guard the public
+        // entry too; a raw C API caller need not use the downstream adapter.
+        if (blocks > size_t(INT_MAX) / (size_t(block_dim) * size_t(block_dim)) ||
+            size_t(n) > size_t(INT_MAX) / size_t(block_dim) ||
+            value_count != blocks * size_t(block_dim) * size_t(block_dim))
+            return AMGX_RC_BAD_PARAMETERS;
+        AMGX_ERROR rc = AMGX_OK;
+        AMGX_TRIES()
+        {
+            typedef typename TemplateMode<AMGX_mode_dDDI>::Type Config;
+            Matrix<Config> &A = *get_mode_object_from<AMGX_mode_dDDI, Matrix, AMGX_matrix_handle>(mtx);
+            if (A.manager || (!A.values.empty() && !A.values.is_external() && A.get_num_rows()))
+                return AMGX_RC_BAD_PARAMETERS;
+            if (A.values.is_external() &&
+                (A.get_num_rows() != n || A.get_num_nz() != nnz || A.get_block_dimy() != block_dim ||
+                 A.hasProps(DIAG) != bool(separate_diagonal)))
+                return AMGX_RC_BAD_PARAMETERS;
+            // Matrix's empty constructor reserves one sentinel scalar. Release
+            // that private empty storage, never any caller-attached allocation.
+            if (!A.values.is_external())
+            {
+                A.values.clear();
+                A.values.shrink_to_fit();
+            }
+            cudaSetDevice(A.getResources()->getDevice(0));
+            cudaCheckError();
+            cudaPointerAttributes pointer;
+            const cudaError_t pointer_result = cudaPointerGetAttributes(&pointer, values);
+            if (pointer_result != cudaSuccess)
+            {
+                cudaGetLastError();
+                return AMGX_RC_BAD_PARAMETERS;
+            }
+            if (pointer.type != cudaMemoryTypeDevice || pointer.device != A.getResources()->getDevice(0) ||
+                reinterpret_cast<size_t>(values) % alignof(double))
+                return AMGX_RC_BAD_PARAMETERS;
+            A.set_initialized(0);
+            A.reset_matrix_setup();
+            A.addProps(CSR);
+            A.delProps(COO);
+            A.setColsReorderedByColor(false);
+            if (separate_diagonal) A.addProps(DIAG);
+            else A.delProps(DIAG);
+            A.values.bind_external(static_cast<double *>(values), value_count);
+            A.resize(n, n, nnz, block_dim, block_dim, 1);
+            cudaMemcpy(A.row_offsets.raw(), row_ptrs, sizeof(int) * (size_t(n) + 1), cudaMemcpyDefault);
+            cudaCheckError();
+            if (nnz) cudaMemcpy(A.col_indices.raw(), col_indices, sizeof(int) * size_t(nnz), cudaMemcpyDefault);
+            cudaCheckError();
+            A.computeDiagonal();
+            A.set_initialized(1);
+        }
+        AMGX_CATCHES(rc)
+        AMGX_CHECK_API_ERROR(rc, resources)
+        return AMGX_RC_OK;
     }
 
     AMGX_RC AMGX_API AMGX_matrix_replace_coefficients(AMGX_matrix_handle mtx, int n, int nnz, const void *data, const void *diag_data)

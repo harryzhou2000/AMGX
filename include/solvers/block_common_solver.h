@@ -110,6 +110,11 @@ void compute_block_inverse_row_major( volatile ValueType *s_Amat, const int s_of
 //ROW MAJOR
     ValueType diag;
     ValueType tmp;
+    // A block occupies <=25 lanes, and several small blocks can share a warp.
+    // Padding/tail lanes have already left the caller; publish every shared
+    // phase among the remaining participating lanes before dependent reads.
+    const unsigned lane_mask = __activemask();
+    __syncwarp(lane_mask);
 
     for (int row = 0; row < bsize; row++)
     {
@@ -121,17 +126,20 @@ void compute_block_inverse_row_major( volatile ValueType *s_Amat, const int s_of
             s_A_lval(tmp, row, j_ind);
         }
 
+        __syncwarp(lane_mask);
         if ((i_ind != row) && !(j_ind == row))
         {
             tmp = types::util<ValueType>::invert(s_A_rval(i_ind, row) * s_A_rval(row, j_ind)) + s_A_rval(i_ind, j_ind);
             s_A_lval(tmp, i_ind, j_ind);
         }
 
+        __syncwarp(lane_mask);
         if (i_ind == 0)
         {
             tmp = (j_ind == row) ? diag : types::util<ValueType>::invert(s_A_rval(j_ind, row) * diag);
             s_A_lval(tmp, j_ind, row);
         }
+        __syncwarp(lane_mask);
     }
 
     Einv[e_offset] = s_A_rval(i_ind, j_ind);

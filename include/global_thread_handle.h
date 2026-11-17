@@ -23,6 +23,8 @@ typedef pthread_t _thread_id;
 
 _thread_id getCurrentThreadId();
 
+struct AMGX_allocator_memory_info;
+
 namespace amgx
 {
 namespace memory
@@ -173,6 +175,8 @@ void destroyAllPinnedMemoryPools();
 void destroyAllDeviceMemoryPools();
 
 void printInfo();
+// Caller joins provider work before querying this diagnostic snapshot.
+void getAllocatorMemoryInfo(AMGX_allocator_memory_info &info);
 
 // adds pre-allocated block to the device pool
 void expandDeviceMemoryPool(size_t size, size_t max_block_size);

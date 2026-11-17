@@ -278,6 +278,50 @@ AMGX_RC AMGX_API AMGX_matrix_upload_all
  const void *data,
  const void *diag_data);
 
+/** Diagnostic capacities; borrowed numeric bytes are not provider-owned.
+ * Capacity excludes allocator rounding/pool reserve. These entries cover the
+ * selected single-device aggregation hierarchy, not external library scratch.
+ */
+typedef struct
+{
+    int level, block_rows, block_nonzeros, block_dim;
+    unsigned long long numeric_owned_bytes, numeric_borrowed_bytes;
+    unsigned long long pattern_bytes, inverse_bytes, transfer_bytes, workspace_bytes;
+} AMGX_level_memory_info;
+
+typedef struct AMGX_allocator_memory_info
+{
+    unsigned long long requested_live_bytes, requested_peak_bytes, live_allocations;
+    unsigned long long device_pool_used_bytes, device_pool_reserved_bytes;
+    unsigned long long pinned_pool_used_bytes, pinned_pool_reserved_bytes;
+    unsigned long long cuda_pool_used_bytes, cuda_pool_reserved_bytes;
+    unsigned long long cuda_pool_used_peak_bytes, cuda_pool_reserved_peak_bytes;
+    int tracking_enabled, cuda_pool_available;
+} AMGX_allocator_memory_info;
+
+/** Query after a completed provider call; capacity=0 queries level count. */
+AMGX_RC AMGX_API AMGX_solver_get_hierarchy_memory
+(AMGX_solver_handle solver, int capacity, AMGX_level_memory_info *levels, int *count);
+/** Set AMGX_TRACK_ALLOCATIONS=1 before resource creation for allocation peaks.
+ * CUDA default-pool fields are process/device-wide, not AmgX-only ownership.
+ */
+AMGX_RC AMGX_API AMGX_get_allocator_memory(AMGX_allocator_memory_info *info);
+
+/** Experimental single-device dDDI native numeric attachment.
+ * Shares, never copies/frees, one row-major device values buffer. CSR indices
+ * are uploaded normally. With separate_diagonal != 0, values contains nnz
+ * off-diagonal blocks then n diagonal blocks; otherwise nnz inline blocks
+ * plus one readable zero sentinel block. value_count must match exactly.
+ * The caller retains the allocation and serializes updates with setup/solve.
+ * Restricted to the non-coloring, non-scaling block-Jacobi AMG profile.
+ * Public upload/replace cannot mutate an attached matrix. Rebinding another
+ * compatible allocation requires a complete solver setup before next use.
+ */
+AMGX_RC AMGX_API AMGX_matrix_attach_device_values
+(AMGX_matrix_handle mtx, int n, int nnz, int block_dim,
+ const int *row_ptrs, const int *col_indices,
+ void *values, size_t value_count, int separate_diagonal);
+
 AMGX_RC AMGX_API AMGX_matrix_replace_coefficients
 (AMGX_matrix_handle mtx,
  int n,

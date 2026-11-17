@@ -411,6 +411,14 @@ void Solver<TConfig>::setup( Operator<TConfig> &A, bool reuse_matrix_structure)
         }
 #endif
 
+        // A native attached numeric payload is read-only to setup/solve.
+        // Its caller owns shape, ordering, scaling and allocation lifetime.
+        if (B.values.is_external() &&
+            (isColoringNeeded() || getReorderColsByColorDesired() || getInsertDiagonalDesired() || m_scaling != "NONE" ||
+             m_cfg->template getParameter<BlockFormat>("block_format", "default") != ROW_MAJOR ||
+             (getName() != "AMG" && getName() != "BLOCK_JACOBI")))
+            FatalError("Native matrix attachment forbids coloring/reordering/scaling", AMGX_ERR_CONFIGURATION);
+
         // Color the matrix, set the block format, reorder columns if necessary
         if (!B.is_matrix_setup())
         {

@@ -156,8 +156,8 @@ class Vector<TemplateConfig<AMGX_host, t_vecPrec, t_matPrec, t_indPrec> > : publ
         Vector() :  block_dimx(1), block_dimy(1), num_rows(0), num_cols(1), lda(0), buffer(NULL), buffer_size(0), dirtybit(1), in_transfer(IDLE), tag(-1), delayed_send(1), cancel(0), manager(NULL), v_is_transformed(false), v_is_read_partitioned(false), host_send_recv_buffer(NULL), linear_buffers_size(0), explicit_host_buffer(NULL), explicit_buffer_size(0), m_unconsolidated_size(0), m_resources(0) { };
         inline Vector(unsigned int N) : amgx::thrust::host_vector<value_type>(N), block_dimx(1), block_dimy(1), num_rows(0), num_cols(1), lda(0), buffer(NULL), buffer_size(0), dirtybit(1), in_transfer(IDLE), tag(-1), delayed_send(1), cancel(0), manager(NULL), v_is_transformed(false), v_is_read_partitioned(false), host_send_recv_buffer(NULL), linear_buffers_size(0), explicit_buffer_size(0), explicit_host_buffer(NULL), m_unconsolidated_size(0), m_resources(0) {}
         inline Vector(unsigned int N, value_type v) : amgx::thrust::host_vector<value_type>(N, v), block_dimx(1), block_dimy(1), num_rows(0), num_cols(1), lda(0), buffer(NULL), buffer_size(0), dirtybit(1), in_transfer(IDLE), tag(-1), delayed_send(1), cancel(0), manager(NULL), v_is_transformed(false), v_is_read_partitioned(false), host_send_recv_buffer(NULL), linear_buffers_size(0), explicit_buffer_size(0), explicit_host_buffer(NULL), m_unconsolidated_size(0), m_resources(0) {}
-        inline Vector(const Vector<TConfig_h> &a) : amgx::thrust::host_vector<value_type>(a), block_dimx(a.get_block_dimx()), block_dimy(a.get_block_dimy()), num_rows(a.get_num_rows()), num_cols(a.get_num_cols()), lda(a.get_lda()), buffer(NULL), buffer_size(0), dirtybit(1), in_transfer(IDLE), tag(-1), delayed_send(1), cancel(0), manager(NULL), v_is_transformed(false), v_is_read_partitioned(false), host_send_recv_buffer(NULL), linear_buffers_size(0), explicit_buffer_size(0), explicit_host_buffer(NULL), m_unconsolidated_size(0), m_resources(0) {}
-        inline Vector(const Vector<TConfig_d> &a) : amgx::thrust::host_vector<value_type>(a), block_dimx(a.get_block_dimx()), block_dimy(a.get_block_dimy()), num_rows(a.get_num_rows()), num_cols(a.get_num_cols()), lda(a.get_lda()), buffer(NULL), buffer_size(0), dirtybit(1), in_transfer(IDLE), tag(-1), delayed_send(1), cancel(0), manager(NULL), v_is_transformed(false), v_is_read_partitioned(false), host_send_recv_buffer(NULL), linear_buffers_size(0), explicit_buffer_size(0), explicit_host_buffer(NULL), m_unconsolidated_size(0), m_resources(0) {}
+        inline Vector(const Vector<TConfig_h> &a) : amgx::thrust::host_vector<value_type>(a.begin(), a.end()), block_dimx(a.get_block_dimx()), block_dimy(a.get_block_dimy()), num_rows(a.get_num_rows()), num_cols(a.get_num_cols()), lda(a.get_lda()), buffer(NULL), buffer_size(0), dirtybit(1), in_transfer(IDLE), tag(-1), delayed_send(1), cancel(0), manager(NULL), v_is_transformed(false), v_is_read_partitioned(false), host_send_recv_buffer(NULL), linear_buffers_size(0), explicit_buffer_size(0), explicit_host_buffer(NULL), m_unconsolidated_size(0), m_resources(0) {}
+        inline Vector(const Vector<TConfig_d> &a) : amgx::thrust::host_vector<value_type>(a.begin(), a.end()), block_dimx(a.get_block_dimx()), block_dimy(a.get_block_dimy()), num_rows(a.get_num_rows()), num_cols(a.get_num_cols()), lda(a.get_lda()), buffer(NULL), buffer_size(0), dirtybit(1), in_transfer(IDLE), tag(-1), delayed_send(1), cancel(0), manager(NULL), v_is_transformed(false), v_is_read_partitioned(false), host_send_recv_buffer(NULL), linear_buffers_size(0), explicit_buffer_size(0), explicit_host_buffer(NULL), m_unconsolidated_size(0), m_resources(0) {}
 
         ~Vector()
         {
@@ -299,6 +299,8 @@ class Vector<TemplateConfig<AMGX_host, t_vecPrec, t_matPrec, t_indPrec> > : publ
         inline Vector<TConfig_h> &operator=(const Vector<TConfig_h> &a) { copy(a); return *this; }
         inline Vector<TConfig_h> &operator=(const Vector<TConfig_d> &a) { copy(a); return *this; }
 
+        bool is_external() const { return false; }
+
         inline value_type *raw()
         {
             if (bytes() > 0) { return amgx::thrust::raw_pointer_cast(this->data()); }
@@ -419,8 +421,8 @@ class Vector<TemplateConfig<AMGX_device, t_vecPrec, t_matPrec, t_indPrec> > : pu
         inline Vector(unsigned int N) : device_vector_alloc<value_type>(N), block_dimx(1), block_dimy(1), num_rows(0), num_cols(1), lda(0), buffer(NULL), dirtybit(1), in_transfer(IDLE), tag(-1), delayed_send(1), cancel(0), manager(NULL), v_is_transformed(false), v_is_read_partitioned(false), host_send_recv_buffer(NULL), linear_buffers_size(0), explicit_buffer_size(0), explicit_host_buffer(NULL), m_unconsolidated_size(0), m_resources(0) {}
         inline Vector(unsigned int N, int dimx, int dimy) : device_vector_alloc<value_type>(N), block_dimx(dimx), block_dimy(dimy), num_rows(0), num_cols(1), lda(0), buffer(NULL), dirtybit(1), in_transfer(IDLE), tag(-1), delayed_send(1), cancel(0), manager(NULL), v_is_transformed(false), v_is_read_partitioned(false), host_send_recv_buffer(NULL), linear_buffers_size(0), explicit_buffer_size(0), explicit_host_buffer(NULL), m_unconsolidated_size(0), m_resources(0) {}
         inline Vector(unsigned int N, value_type v) : device_vector_alloc<value_type>(N, v), block_dimx(1), block_dimy(1), num_rows(0), num_cols(1), lda(0), buffer(NULL), buffer_size(0), dirtybit(1), in_transfer(IDLE), tag(-1), delayed_send(1), cancel(0), manager(NULL), v_is_transformed(false), v_is_read_partitioned(false), host_send_recv_buffer(NULL), linear_buffers_size(0), explicit_buffer_size(0), explicit_host_buffer(NULL), m_unconsolidated_size(0), m_resources(0) {}
-        inline Vector(const Vector<TConfig_h> &a) : device_vector_alloc<value_type>(a), block_dimx(a.get_block_dimx()), block_dimy(a.get_block_dimy()), num_rows(a.get_num_rows()), num_cols(a.get_num_cols()), lda(a.get_lda()), buffer(NULL), buffer_size(0), dirtybit(1), in_transfer(IDLE), tag(-1), delayed_send(1), cancel(0), manager(NULL), v_is_transformed(false), v_is_read_partitioned(false), host_send_recv_buffer(NULL), linear_buffers_size(0), explicit_buffer_size(0), explicit_host_buffer(NULL), m_unconsolidated_size(0), m_resources(0) {}
-        inline Vector(const Vector<TConfig_d> &a) : device_vector_alloc<value_type>(a), block_dimx(a.get_block_dimx()), block_dimy(a.get_block_dimy()), num_rows(a.get_num_rows()), num_cols(a.get_num_cols()), lda(a.get_lda()), buffer(NULL), buffer_size(0), dirtybit(1), in_transfer(IDLE), tag(-1), delayed_send(1), cancel(0), manager(NULL), v_is_transformed(false), v_is_read_partitioned(false), host_send_recv_buffer(NULL), linear_buffers_size(0), explicit_buffer_size(0), explicit_host_buffer(NULL), m_unconsolidated_size(0), m_resources(0) {}
+        inline Vector(const Vector<TConfig_h> &a) : device_vector_alloc<value_type>(a.begin(), a.end()), block_dimx(a.get_block_dimx()), block_dimy(a.get_block_dimy()), num_rows(a.get_num_rows()), num_cols(a.get_num_cols()), lda(a.get_lda()), buffer(NULL), buffer_size(0), dirtybit(1), in_transfer(IDLE), tag(-1), delayed_send(1), cancel(0), manager(NULL), v_is_transformed(false), v_is_read_partitioned(false), host_send_recv_buffer(NULL), linear_buffers_size(0), explicit_buffer_size(0), explicit_host_buffer(NULL), m_unconsolidated_size(0), m_resources(0) {}
+        inline Vector(const Vector<TConfig_d> &a) : device_vector_alloc<value_type>(a.begin(), a.end()), block_dimx(a.get_block_dimx()), block_dimy(a.get_block_dimy()), num_rows(a.get_num_rows()), num_cols(a.get_num_cols()), lda(a.get_lda()), buffer(NULL), buffer_size(0), dirtybit(1), in_transfer(IDLE), tag(-1), delayed_send(1), cancel(0), manager(NULL), v_is_transformed(false), v_is_read_partitioned(false), host_send_recv_buffer(NULL), linear_buffers_size(0), explicit_buffer_size(0), explicit_host_buffer(NULL), m_unconsolidated_size(0), m_resources(0) {}
 
         ~Vector()
         {
@@ -475,6 +477,8 @@ class Vector<TemplateConfig<AMGX_device, t_vecPrec, t_matPrec, t_indPrec> > : pu
         template< typename OtherVector >
         inline void copy( const OtherVector &a )
         {
+            if (is_external())
+                FatalError("Cannot assign externally attached matrix values", AMGX_ERR_BAD_PARAMETERS);
             //copy dimensions
             this->set_block_dimx( a.get_block_dimx());
             this->set_block_dimy( a.get_block_dimy());
@@ -515,6 +519,8 @@ class Vector<TemplateConfig<AMGX_device, t_vecPrec, t_matPrec, t_indPrec> > : pu
 
         inline void copy_async(const Vector<TConfig_h> &a, cudaStream_t s = 0)
         {
+            if (is_external())
+                FatalError("Cannot assign externally attached matrix values", AMGX_ERR_BAD_PARAMETERS);
             //copy dimensions
             this->set_block_dimx( a.get_block_dimx());
             this->set_block_dimy( a.get_block_dimy());
@@ -556,6 +562,8 @@ class Vector<TemplateConfig<AMGX_device, t_vecPrec, t_matPrec, t_indPrec> > : pu
 
         inline void copy_async(const Vector<TConfig_d> &a, cudaStream_t s = 0)
         {
+            if (is_external())
+                FatalError("Cannot assign externally attached matrix values", AMGX_ERR_BAD_PARAMETERS);
             //copy dimensions
             this->set_block_dimx( a.get_block_dimx());
             this->set_block_dimy( a.get_block_dimy());
@@ -602,14 +610,88 @@ class Vector<TemplateConfig<AMGX_device, t_vecPrec, t_matPrec, t_indPrec> > : pu
         inline Vector<TConfig_d> &operator=(const Vector<TConfig_h> &a) { copy(a); return *this; }
         inline Vector<TConfig_d> &operator=(const Vector<TConfig_d> &a) { copy(a); return *this; }
 
+        /** Restricted non-owning payload for native device-matrix attachment.
+         * The base Thrust vector remains empty and never owns this pointer.
+         * The caller retains the allocation; resizing/assignment/swap are forbidden.
+         * Only the documented fixed single-device aggregation profile may use it.
+         */
+        using Storage = device_vector_alloc<value_type>;
+        using iterator = typename Storage::iterator;
+        using const_iterator = typename Storage::const_iterator;
+        using size_type = typename Storage::size_type;
+        bool is_external() const { return m_external_data != nullptr; }
+        void bind_external(value_type *data, size_type count)
+        {
+            if (!data || !count || Storage::size())
+                FatalError("Native attachment requires nonempty external data and empty owned storage", AMGX_ERR_BAD_PARAMETERS);
+            m_external_data = data;
+            m_external_size = count;
+        }
+        size_type size() const { return is_external() ? m_external_size : Storage::size(); }
+        size_type capacity() const { return is_external() ? m_external_size : Storage::capacity(); }
+        bool empty() const { return size() == 0; }
+        iterator begin() { return is_external() ? iterator(amgx::thrust::device_pointer_cast(m_external_data)) : Storage::begin(); }
+        const_iterator begin() const { return is_external() ? const_iterator(amgx::thrust::device_pointer_cast(static_cast<const value_type *>(m_external_data))) : Storage::begin(); }
+        typename Storage::pointer data() { return is_external() ? amgx::thrust::device_pointer_cast(m_external_data) : Storage::data(); }
+        typename Storage::const_pointer data() const { return is_external() ? amgx::thrust::device_pointer_cast(static_cast<const value_type *>(m_external_data)) : Storage::data(); }
+        iterator end() { return begin() + size(); }
+        const_iterator end() const { return begin() + size(); }
+        typename Storage::reference operator[](size_type i) { return *(begin() + i); }
+        typename Storage::const_reference operator[](size_type i) const { return *(begin() + i); }
+        typename Storage::reference front() { return *begin(); }
+        typename Storage::const_reference front() const { return *begin(); }
+        typename Storage::reference back() { return *(end() - 1); }
+        typename Storage::const_reference back() const { return *(end() - 1); }
+        void resize(size_type count)
+        {
+            if (is_external())
+            {
+                if (count != m_external_size)
+                    FatalError("Cannot resize externally attached matrix values", AMGX_ERR_BAD_PARAMETERS);
+                return;
+            }
+            Storage::resize(count);
+        }
+        void resize(size_type count, const value_type &value)
+        {
+            if (is_external())
+                FatalError("Cannot fill externally attached matrix values", AMGX_ERR_BAD_PARAMETERS);
+            Storage::resize(count, value);
+        }
+        void clear()
+        {
+            if (is_external())
+                FatalError("Cannot clear externally attached matrix values", AMGX_ERR_BAD_PARAMETERS);
+            Storage::clear();
+        }
+        void shrink_to_fit() { if (!is_external()) Storage::shrink_to_fit(); }
+        void reserve(size_type count)
+        {
+            if (is_external())
+            {
+                if (count > m_external_size)
+                    FatalError("Cannot reserve externally attached matrix values", AMGX_ERR_BAD_PARAMETERS);
+                return;
+            }
+            Storage::reserve(count);
+        }
+        void swap(Vector<TConfig_d> &other)
+        {
+            if (is_external() || other.is_external())
+                FatalError("Cannot swap externally attached matrix values", AMGX_ERR_BAD_PARAMETERS);
+            Storage::swap(other);
+        }
+
         inline value_type *raw()
         {
-            if (bytes() > 0) { return amgx::thrust::raw_pointer_cast(this->data()); }
+            if (is_external()) { return m_external_data; }
+            if (bytes() > 0) { return amgx::thrust::raw_pointer_cast(Storage::data()); }
             else { return 0; }
         }
         inline const value_type *raw() const
         {
-            if (bytes() > 0) { return amgx::thrust::raw_pointer_cast(this->data()); }
+            if (is_external()) { return m_external_data; }
+            if (bytes() > 0) { return amgx::thrust::raw_pointer_cast(Storage::data()); }
             else { return 0; }
         }
 
@@ -693,6 +775,8 @@ class Vector<TemplateConfig<AMGX_device, t_vecPrec, t_matPrec, t_indPrec> > : pu
         short block_dimx, block_dimy;
         unsigned int num_rows, num_cols, lda;
 
+        value_type *m_external_data = nullptr;
+        size_t m_external_size = 0;
         Resources *m_resources;
 
 };

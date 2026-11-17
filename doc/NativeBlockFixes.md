@@ -61,3 +61,10 @@ This correction does not introduce a caller-selected CUDA stream API or promise
 CUDA graph capture. Existing internal stream handling, default-stream launches,
 host synchronization and library-handle ownership still require a separate
 audit before asynchronous embedding.
+
+
+## Follow-up extension
+
+The next native modal-block/storage work is documented separately in
+[NativeStorage.md](NativeStorage.md). Its validation is distinct from the older
+6/7 patch evidence above.
