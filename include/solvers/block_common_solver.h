@@ -264,7 +264,8 @@ void compute_block_inverse_col_major( volatile ValueType *s_Amat, const int s_of
 
     for (int row = 0; row < bsize; row++)
     {
-        diag = isNotCloseToZero(s_At(row, row)) ? ValueType(1) / s_At(row, row) : ValueType(1) / epsilon(s_At(row, row));
+        const ValueType pivot = types::util<ValueType>::volcast(s_At(row, row));
+        diag = ValueType(1) / (isNotCloseToZero(pivot) ? pivot : epsilon(pivot));
 
         if ((i_ind == 0) && !(j_ind == row))
         {
@@ -359,7 +360,11 @@ ValueType tmp;
 
     for (int row = 0; row < bsize; row++)
     {
-        diag = isNotCloseToZero(s_A(row, row)) ? types::util<ValueType>::get_one() / s_A2_rval(row, row) : types::util<ValueType>::get_one() / epsilon(s_A2_rval(row, row));
+        // A volatile double cannot bind to const double&. Without this typed
+        // load overload resolution selects the float pivot test (1e-7) and
+        // then replaces a healthy FP64 pivot with signed double epsilon (1e-12).
+        const ValueType pivot = s_A2_rval(row, row);
+        diag = types::util<ValueType>::get_one() / (isNotCloseToZero(pivot) ? pivot : epsilon(pivot));
 
         for (int t2 = 0; t2 < tile_num; t2++)
             if ((i_ind == 0) && !(j_ind + t2 * 4 == row) && ((t2 * 4 + j_ind) < bsize))
