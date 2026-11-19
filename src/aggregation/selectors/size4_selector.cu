@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: BSD-3-Clause
 
+#include <aggregation/geometric_edge_weights.h>
 #include <aggregation/selectors/size4_selector.h>
 #include <cutil.h>
 #include <util.h>
@@ -136,7 +137,11 @@ void Size4Selector<TemplateConfig<AMGX_device, t_vecPrec, t_matPrec, t_indPrec> 
     // Compute the edge weights
     const int num_blocks_V2 = std::min( AMGX_GRID_MAX_SIZE, (num_nonzero_blocks - 1) / threads_per_block + 1);
 
-    if (num_nonzero_blocks > 0)
+    if (this->weight_formula == 2)
+    {
+        loadGeometricStrength(A, edge_weights_ptr, 0);
+    }
+    else if (num_nonzero_blocks > 0)
     {
         cudaFuncSetCacheConfig(computeEdgeWeightsBlockDiaCsr_V2<IndexType, ValueType, float>, cudaFuncCachePreferL1);
         computeEdgeWeightsBlockDiaCsr_V2 <<< num_blocks_V2, threads_per_block>>>(A_row_offsets_ptr, A_row_indices_ptr, A_column_indices_ptr, A_dia_idx_ptr, A_nonzero_values_ptr, num_nonzero_blocks, edge_weights_ptr, rand_edge_weights_ptr, num_block_rows, A.get_block_dimy(), this->m_aggregation_edge_weight_component, this->weight_formula);

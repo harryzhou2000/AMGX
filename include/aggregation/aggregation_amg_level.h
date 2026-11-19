@@ -82,6 +82,8 @@ class Aggregation_AMG_Level_Base : public AMG_Level<T_Config>
             delete m_coarseAGenerator;
         }
 
+        const IVector &aggregate_map() const { return m_aggregates; }
+
         size_t transfer_storage_bytes() const
         {
             return (m_R_row_offsets.capacity() + m_R_column_indices.capacity() +

@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: BSD-3-Clause
 
+#include <aggregation/geometric_edge_weights.h>
 #include <cutil.h>
 #include <util.h>
 #include <types.h>
@@ -1251,7 +1252,11 @@ void Size8Selector<TemplateConfig<AMGX_device, t_vecPrec, t_matPrec, t_indPrec> 
 #endif
     int usenumassignedassumption = false;
 
-    if (newWeights == 0)
+    if (this->weight_formula == 2)
+    {
+        loadGeometricStrength(A, edge_weights_ptr, stream);
+    }
+    else if (newWeights == 0)
     {
         cudaFuncSetCacheConfig(computeEdgeWeightsBlockDiaCsr_V2<IndexType, ValueType, float>, cudaFuncCachePreferL1);
         computeEdgeWeightsBlockDiaCsr_V2 <<< num_blocks_V2, threads_per_block, 0, stream>>>(

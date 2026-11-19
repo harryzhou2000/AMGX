@@ -465,7 +465,7 @@ inline void registerParameters()
     AMG_Config::registerParameter<int>("max_matching_iterations", "the maximum number of 'matching' iterations in the size2_selector, size4_selector and size8_selector algorithms <15>", 15);
     AMG_Config::registerParameter<double>("max_unassigned_percentage", "the maximum percentage of vertices that are left unaggregated in first phase of matching algorithms <0.05>", 0.05);
     //Register Selector (MULTI_PAIRWISE) Parameters
-    AMG_Config::registerParameter<int>("weight_formula", "choose the weight formula. 0: wij=0.5*(|a_ij|+|aji|)/max(|a_ii|,|a_jj|). 1: wij=-0.5(a_ij/a_ii + a_ji/a_jj) <0>", 0);
+    AMG_Config::registerParameter<int>("weight_formula", "choose the weight formula. 0: wij=0.5*(|a_ij|+|aji|)/max(|a_ii|,|a_jj|). 1: wij=-0.5(a_ij/a_ii + a_ji/a_jj). 2: use attached geometric edge strengths <0>", 0);
     AMG_Config::registerParameter<int>("aggregation_passes", "for selector=MULTI_PAIRWISE: each pass about doubles the size of each aggregate", 3);
     AMG_Config::registerParameter<int>("filter_weights", "for selector=MULTI_PAIRWISE: set to 1 to remove weak edges before building aggregates. <0>", 0);
     AMG_Config::registerParameter<double>("filter_weights_alpha", "for selector=MULTI_PAIRWISE: a weight is considered weak iff w_ij<alpha*sqrt(max{w_ik}*max{w_jl}). alpha has to be in range (0,1) <0.5>", 0.5, 0.0, 1.0);

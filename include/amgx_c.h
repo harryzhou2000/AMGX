@@ -302,6 +302,18 @@ typedef struct AMGX_allocator_memory_info
 /** Query after a completed provider call; capacity=0 queries level count. */
 AMGX_RC AMGX_API AMGX_solver_get_hierarchy_memory
 (AMGX_solver_handle solver, int capacity, AMGX_level_memory_info *levels, int *count);
+/** Synchronous diagnostic for single-device dDDI aggregation. Pass capacity=0
+ * and output=NULL to query byte count. Terminal levels have no aggregate map.
+ * Numeric slots are in native CSR block order followed by the separate diagonal
+ * if present. Inline-diagonal matrices omit the unused sentinel. */
+typedef enum
+{
+    AMGX_LEVEL_ROW_OFFSETS, AMGX_LEVEL_COLUMNS, AMGX_LEVEL_AGGREGATES,
+    AMGX_LEVEL_BLOCK_VALUES, AMGX_LEVEL_GEOMETRIC_WEIGHTS
+} AMGX_LEVEL_FIELD;
+AMGX_RC AMGX_API AMGX_solver_download_level_field(AMGX_solver_handle solver, int level,
+    AMGX_LEVEL_FIELD field, size_t capacity_bytes, void *host_output, size_t *required_bytes);
+
 /** Set AMGX_TRACK_ALLOCATIONS=1 before resource creation for allocation peaks.
  * CUDA default-pool fields are process/device-wide, not AmgX-only ownership.
  */
@@ -321,6 +333,14 @@ AMGX_RC AMGX_API AMGX_matrix_attach_device_values
 (AMGX_matrix_handle mtx, int n, int nnz, int block_dim,
  const int *row_ptrs, const int *col_indices,
  void *values, size_t value_count, int separate_diagonal);
+
+/** Attach one scalar geometry strength per block CSR entry (single-device dDDI).
+ * Off-diagonal entries are positive; diagonal slots are ignored. The device array
+ * is copied before return. Attach after the matrix pattern and before solver setup.
+ * Rebuild the hierarchy after changing geometry or connectivity.
+ */
+AMGX_RC AMGX_API AMGX_matrix_attach_edge_weights
+(AMGX_matrix_handle mtx, int nnz, const double *device_weights);
 
 AMGX_RC AMGX_API AMGX_matrix_replace_coefficients
 (AMGX_matrix_handle mtx,

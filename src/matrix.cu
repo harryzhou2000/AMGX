@@ -706,6 +706,7 @@ MatrixBase<T_Config>::resize(index_type num_rows, index_type num_cols, index_typ
     }
 
     {
+        geometric_edge_weights.reset();
         this->num_rows = num_rows;
         this->num_cols = num_cols;
         this->num_nz = num_nz;

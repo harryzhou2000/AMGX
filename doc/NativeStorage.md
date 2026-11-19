@@ -88,3 +88,22 @@ The downstream tests add all requested widths, inverse exact-solve tails,
 public/attached equivalence, value refresh, retained allocation lifetime,
 unchanged input values, stale-epoch rejection and native flow matrix aliases.
 These planned checks are not a result until the execution ledger records them.
+
+## Geometry-only aggregation with full structure reuse
+
+For single-device dDDI block Jacobi, supply one FP64 edge strength in each fine
+CSR slot with `AMGX_matrix_attach_edge_weights` after uploading or attaching
+the matrix and before solver setup. The matrix retains its own copy. In the
+AMG config select `weight_formula=2`, a SIZE_2, SIZE_4 or SIZE_8 selector,
+LOW_DEG and `structure_reuse_levels=-1`. An inline diagonal has weight zero.
+At each level the next graph sums all conductances crossing between the same
+two aggregates. The matching perturbation applies only to the temporary float
+selector weights.
+
+After updating physical coefficients in place (or replacing uploaded values)
+call `AMGX_solver_resetup` on the same matrix. This preserves the CSR patterns,
+aggregate membership and transfer maps, recomputes the full physical blocks
+of the Galerkin product and refreshes the Jacobi smoother inverses. Callers
+create a new matrix and hierarchy when the graph or geometric strengths change.
+The diagnostic `examples/validate_geometry_hierarchy.py` compares each layer
+against CPU edge and matrix sums and checks a refreshed cycle against fresh setup.

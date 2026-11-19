@@ -32,6 +32,8 @@
 #include <climits>
 #include <solvers/solver.h>
 #include <matrix.h>
+#include <aggregation/geometric_edge_weights.h>
+#include <aggregation/aggregation_amg_level.h>
 #include <vector.h>
 #include <thrust_wrapper.h>
 
@@ -3063,6 +3065,60 @@ extern "C" {
         return AMGX_RC_OK;
     }
 
+    AMGX_RC AMGX_API AMGX_solver_download_level_field(AMGX_solver_handle handle, int index,
+        AMGX_LEVEL_FIELD field, size_t capacity, void *output, size_t *required)
+    {
+        if (!required || index < 0 || (!output && capacity)) return AMGX_RC_BAD_PARAMETERS;
+        if (get_mode_from<AMGX_solver_handle>(handle) != AMGX_mode_dDDI) return AMGX_RC_BAD_MODE;
+        Resources *resources;
+        AMGX_CHECK_API_ERROR_NORSRC(getAMGXerror(getResourcesFromSolverHandle(handle, &resources)))
+        AMGX_ERROR rc = AMGX_OK;
+        AMGX_TRIES()
+        {
+            using Config = TemplateMode<AMGX_mode_dDDI>::Type;
+            auto *wrapped = get_mode_object_from<AMGX_mode_dDDI, AMG_Solver, AMGX_solver_handle>(handle);
+            auto *solver = dynamic_cast<AlgebraicMultigrid_Solver<Config> *>(wrapped->getSolverObject());
+            if (!solver) return AMGX_RC_BAD_MODE;
+            MemorySpaceMap<AMGX_device>::Type device;
+            auto *level = solver->hierarchy().getFinestLevel(device);
+            for (int i = 0; level && i < index; ++i) level = level->getNextLevel(device);
+            if (!level) return AMGX_RC_BAD_PARAMETERS;
+            auto *aggregation_level = dynamic_cast<aggregation::Aggregation_AMG_Level_Base<Config> *>(level);
+            if (!aggregation_level) return AMGX_RC_BAD_MODE;
+            const auto &a = level->getA();
+            const size_t n = a.get_num_rows(), nnz = a.get_num_nz();
+            const void *source = nullptr;
+            switch (field)
+            {
+                case AMGX_LEVEL_ROW_OFFSETS:
+                    *required = (n + 1) * sizeof(int); source = a.row_offsets.raw(); break;
+                case AMGX_LEVEL_COLUMNS:
+                    *required = nnz * sizeof(int); source = a.col_indices.raw(); break;
+                case AMGX_LEVEL_AGGREGATES:
+                    *required = level->getNextLevel(device) ? n * sizeof(int) : 0;
+                    if (*required) source = aggregation_level->aggregate_map().raw();
+                    break;
+                case AMGX_LEVEL_BLOCK_VALUES:
+                    *required = (nnz + (a.hasProps(DIAG) ? n : 0)) * a.get_block_size() * sizeof(double);
+                    source = a.values.raw(); break;
+                case AMGX_LEVEL_GEOMETRIC_WEIGHTS:
+                    *required = a.geometric_edge_weights ? nnz * sizeof(double) : 0; break;
+                default: return AMGX_RC_BAD_PARAMETERS;
+            }
+            if (output && capacity < *required) return AMGX_RC_BAD_PARAMETERS;
+            if (output && *required)
+            {
+                if (field == AMGX_LEVEL_GEOMETRIC_WEIGHTS)
+                    aggregation::copyGeometricStrength(a, static_cast<double *>(output), 0);
+                else if (cudaMemcpy(output, source, *required, cudaMemcpyDeviceToHost) != cudaSuccess)
+                    return AMGX_RC_CUDA_FAILURE;
+            }
+        }
+        AMGX_CATCHES(rc)
+        AMGX_CHECK_API_ERROR(rc, resources)
+        return AMGX_RC_OK;
+    }
+
     AMGX_RC AMGX_API AMGX_solver_get_hierarchy_memory(AMGX_solver_handle handle,
         int capacity, AMGX_level_memory_info *levels, int *count)
     {
@@ -3164,6 +3220,41 @@ extern "C" {
             cudaCheckError();
             A.computeDiagonal();
             A.set_initialized(1);
+        }
+        AMGX_CATCHES(rc)
+        AMGX_CHECK_API_ERROR(rc, resources)
+        return AMGX_RC_OK;
+    }
+
+    AMGX_RC AMGX_API AMGX_matrix_attach_edge_weights(AMGX_matrix_handle mtx, int nnz,
+                                                     const double *device_weights)
+    {
+        Resources *resources;
+        AMGX_CHECK_API_ERROR_NORSRC(getAMGXerror(getResourcesFromMatrixHandle(mtx, &resources)))
+        if (get_mode_from<AMGX_matrix_handle>(mtx) != AMGX_mode_dDDI)
+            return AMGX_RC_BAD_PARAMETERS;
+        AMGX_ERROR rc = AMGX_OK;
+        AMGX_TRIES()
+        {
+            auto &A = *get_mode_object_from<AMGX_mode_dDDI, Matrix, AMGX_matrix_handle>(mtx);
+            cudaSetDevice(resources->getDevice(0));
+            cudaCheckError();
+            if (!A.is_initialized() || A.is_matrix_setup() || !A.is_matrix_singleGPU() ||
+                A.get_num_rows() != A.get_num_cols() || nnz < 0 || nnz != A.get_num_nz() || (nnz && !device_weights))
+                return AMGX_RC_BAD_PARAMETERS;
+            if (nnz)
+            {
+                cudaPointerAttributes pointer;
+                if (cudaPointerGetAttributes(&pointer, device_weights) != cudaSuccess)
+                {
+                    cudaGetLastError();
+                    return AMGX_RC_BAD_PARAMETERS;
+                }
+                if (pointer.type != cudaMemoryTypeDevice || pointer.device != resources->getDevice(0) ||
+                    reinterpret_cast<size_t>(device_weights) % alignof(double))
+                    return AMGX_RC_BAD_PARAMETERS;
+            }
+            aggregation::attachGeometricStrength(A, device_weights);
         }
         AMGX_CATCHES(rc)
         AMGX_CHECK_API_ERROR(rc, resources)

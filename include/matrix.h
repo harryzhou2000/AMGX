@@ -10,6 +10,7 @@
 namespace amgx
 {
 template <class T_Config> class Matrix;
+namespace aggregation { struct GeometricEdgeWeights; }
 template <class T_Config> class MatrixBase;
 template <class T_Config> class MatrixView;
 
@@ -31,6 +32,7 @@ enum MatrixProps
 //enum BLOCK_FORMAT{ ROW_MAJOR=0, COLUMN_MAJOR=1};
 #include <cstdio>
 #include <map>
+#include <memory>
 
 #include <operators/operator.h>
 #include <amgx_cusparse.h>
@@ -70,6 +72,9 @@ class MatrixBase : public AuxData, public Operator<T_Config>
         typedef typename TConfig::MatPrec  value_type;
         typedef typename TConfig::IndPrec  index_type;
         DEFINE_VECTOR_TYPES
+
+        // Immutable scalar edge graph, shared by matrix copies used during hierarchy setup.
+        std::shared_ptr<const aggregation::GeometricEdgeWeights> geometric_edge_weights;
 
     protected:
         index_type block_dimy;
@@ -252,6 +257,7 @@ class MatrixBase : public AuxData, public Operator<T_Config>
         {
             this->set_initialized(0);
             copyAuxData(&a);
+            geometric_edge_weights = a.geometric_edge_weights;
             block_dimy = a.get_block_dimy();
             block_dimx = a.get_block_dimx();
             block_size = a.get_block_size();
@@ -299,6 +305,7 @@ class MatrixBase : public AuxData, public Operator<T_Config>
         {
             this->set_initialized(0);
             copyAuxData(&a);
+            geometric_edge_weights = a.geometric_edge_weights;
             block_dimy = a.get_block_dimy();
             block_dimx = a.get_block_dimx();
             block_size = a.get_block_size();
@@ -346,6 +353,7 @@ class MatrixBase : public AuxData, public Operator<T_Config>
         {
             this->set_initialized(0);
             copyAuxData(&a);
+            geometric_edge_weights = a.geometric_edge_weights;
             block_dimy = a.get_block_dimy();
             block_dimx = a.get_block_dimx();
             block_size = a.get_block_size();
@@ -390,6 +398,7 @@ class MatrixBase : public AuxData, public Operator<T_Config>
         {
             this->set_initialized(0);
             copyAuxData(&a);
+            geometric_edge_weights = a.geometric_edge_weights;
             block_dimy = a.get_block_dimy();
             block_dimx = a.get_block_dimx();
             block_size = a.get_block_size();
@@ -464,6 +473,7 @@ class MatrixBase : public AuxData, public Operator<T_Config>
             unsigned int temp2 = this->getProps();
             this->setProps(a.getProps());
             a.setProps(temp2);
+            geometric_edge_weights.swap(a.geometric_edge_weights);
             values.swap(a.values);
             row_offsets.swap(a.row_offsets);
             row_indices.swap(a.row_indices);
@@ -502,6 +512,7 @@ class MatrixBase : public AuxData, public Operator<T_Config>
         inline void copyFromCuspCsr( const CuspCsrMatrix &A )
         {
             this->set_initialized(0);
+            geometric_edge_weights.reset();
             this->setProps(CSR);
             num_rows    = A.get_num_rows();
             num_cols    = A.get_num_cols();
@@ -526,6 +537,7 @@ class MatrixBase : public AuxData, public Operator<T_Config>
         inline void copyFromCuspCoo( const CuspCooMatrix &A )
         {
             this->set_initialized(0);
+            geometric_edge_weights.reset();
             this->setProps(COO);
             num_rows    = A.get_num_rows();
             num_cols    = A.get_num_cols();

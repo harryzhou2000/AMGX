@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: BSD-3-Clause
 
 #include <aggregation/aggregation_amg_level.h>
+#include <aggregation/geometric_edge_weights.h>
+#include <aggregation/coarseAgenerators/low_deg_coarse_A_generator.h>
 #include <matrix_analysis.h>
 
 #ifdef _WIN32
@@ -2016,8 +2018,25 @@ void Aggregation_AMG_Level_Base<T_Config>::createCoarseMatrices()
 
     Ac.set_initialized(0);
     Ac.copyAuxData(&A);
-    this->m_coarseAGenerator->computeAOperator(A, Ac, this->m_aggregates, this->m_R_row_offsets, this->m_R_column_indices, this->m_num_all_aggregates);
-    Ac.setColsReorderedByColor(false);
+    const bool retained = A.geometric_edge_weights && this->isReuseLevel() && A.is_matrix_singleGPU() &&
+        dynamic_cast<LowDegCoarseAGenerator<TConfig> *>(this->m_coarseAGenerator) &&
+        refreshRetainedCoarseValues(A, Ac, this->m_aggregates.raw(), this->m_R_row_offsets.raw(),
+                                    this->m_R_column_indices.raw());
+    if (A.geometric_edge_weights && this->isReuseLevel() && !retained)
+        FatalError("Geometric AMG numeric resetup requires compatible retained LOW_DEG structure", AMGX_ERR_BAD_PARAMETERS);
+    if (retained)
+    {
+        Ac.set_initialized(1);
+    }
+    else
+    {
+        this->m_coarseAGenerator->computeAOperator(A, Ac, this->m_aggregates, this->m_R_row_offsets,
+                                                   this->m_R_column_indices, this->m_num_all_aggregates);
+        Ac.setColsReorderedByColor(false);
+        if (A.geometric_edge_weights)
+            coarsenGeometricStrength(A, Ac, this->m_aggregates.raw(), this->m_R_row_offsets.raw(),
+                                     this->m_R_column_indices.raw());
+    }
     Ac.setView(FULL);
 
     if (consolidation_level)
