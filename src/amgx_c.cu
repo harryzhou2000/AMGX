@@ -16,6 +16,7 @@
 #include "amg_signal.h"
 #include <matrix_io.h>
 #include "amgx_c.h"
+#include "amgx_block_inverse.h"
 #include "amgxP_c.h"
 #include "version.h"
 #include "distributed/distributed_manager.h"
@@ -2533,6 +2534,21 @@ extern "C" {
                 AMGX_CHECK_API_ERROR_NORSRC(err)
                 //return getCAPIerror(err);
                 return AMGX_RC_OK;
+    }
+
+    AMGX_RC AMGX_API AMGX_config_set_block_inverse(AMGX_config_handle cfg_h, const AMGX_block_inverse *provider)
+    {
+        if (!cfg_h || (provider && !provider->compute)) return AMGX_RC_BAD_PARAMETERS;
+        AMGX_ERROR rc = AMGX_OK;
+        AMGX_TRIES()
+        {
+            ConfigW cfg(cfg_h);
+            cfg.wrapped()->getConfigObject()->setParameter<void *>("block_inverse_provider",
+                const_cast<AMGX_block_inverse *>(provider), "default");
+        }
+        AMGX_CATCHES(rc)
+        AMGX_CHECK_API_ERROR_NORSRC(rc)
+        return AMGX_RC_OK;
     }
 
     AMGX_RC AMGX_API AMGX_config_get_default_number_of_rings(AMGX_config_handle cfg_h, int *num_import_rings)

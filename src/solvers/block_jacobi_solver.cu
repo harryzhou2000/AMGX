@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: BSD-3-Clause
 
 #include <type_traits>
+#include "amgx_block_inverse.h"
 #include <solvers/block_jacobi_solver.h>
 #include <solvers/block_common_solver.h>
 #include <gaussian_elimination.h>
@@ -823,7 +824,26 @@ BlockJacobiSolver_Base<T_Config>::solver_setup(bool reuse_matrix_structure)
         FatalError("BlockJacobiSolver only works with explicit matrices", AMGX_ERR_INTERNAL);
     }
 
-    computeDinv( *A_as_matrix );
+    auto *provider = static_cast<const AMGX_block_inverse *>(
+        this->m_cfg->template getParameter<void *>("block_inverse_provider", "default"));
+    if (provider)
+    {
+        if constexpr (T_Config::mode == AMGX_mode_dDDI)
+        {
+            auto &A = *A_as_matrix;
+            if (A.getBlockFormat() != ROW_MAJOR || !A.is_matrix_singleGPU() ||
+                A.get_block_dimx() != A.get_block_dimy())
+                FatalError("application block inverse requires single-device row-major square blocks", AMGX_ERR_CONFIGURATION);
+            const int rows = A.get_num_rows(), width = A.get_block_dimx();
+            this->Dinv.resize(size_t(rows) * width * width);
+            if (rows && provider->compute(rows, width, A.diag.raw(), A.values.raw(), this->Dinv.raw()))
+                FatalError("application diagonal inverse failed", AMGX_ERR_INTERNAL);
+        }
+        else
+            FatalError("application block inverse requires dDDI", AMGX_ERR_BAD_MODE);
+    }
+    else
+        computeDinv(*A_as_matrix);
 
     if ( A_as_matrix->getBlockFormat() != ROW_MAJOR )
     {

@@ -263,6 +263,7 @@ endif(MPI_FOUND)
 # CMAKE_CUDA_ARCHITECTURES is inherited by all targets automatically
 
 install(FILES
+  include/amgx_block_inverse.h
   include/amgx_config.h
   include/amgx_c.h
   DESTINATION include)
